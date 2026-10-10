@@ -1,0 +1,13 @@
+﻿FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+
+WORKDIR /src
+COPY . .
+
+WORKDIR /src/src/Catalog.Api
+
+RUN dotnet restore
+RUN dotnet tool install --global dotnet-ef --version 8.*
+ENV PATH="$PATH:/root/.dotnet/tools"
+
+# Usar ENTRYPOINT con la variable de entorno pasada por Docker Compose
+ENTRYPOINT ["sh", "-c", "dotnet ef database update --connection \"$Database__ConnectionString\""]

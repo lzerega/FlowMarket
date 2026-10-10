@@ -1,0 +1,134 @@
+version: '3.8'
+
+services:
+  catalog-api:
+    image: catalog-api
+    build:
+      context: ..
+      dockerfile: src/Catalog.Api/Dockerfile
+    container_name: catalog-api
+    ports:
+      - "5001:8080"
+    secrets:
+      - postgres_catalog_db_username
+      - postgres_catalog_db_password
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      Database__ConnectionString: Host=catalog-db;Port=5432;Database=catalogdb;Username=cataloguser;Password=catalogpassword
+
+  orders-api:
+    image: orders-api
+    build:
+      context: ..
+      dockerfile: src/Orders.Api/Dockerfile
+    container_name: orders-api
+    ports:
+      - "5002:8080"
+    secrets:
+      - postgres_orders_db_username
+      - postgres_orders_db_password
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      Database__ConnectionString: Host=orders-db;Port=5432;Database=ordersdb;Username=ordersuser;Password=orderspassword
+      
+  gateway-api:
+    image: gateway-api
+    build:
+      context: ..
+      dockerfile: src/Gateway.Api/Dockerfile
+    container_name: gateway-api
+    ports:
+      - "5000:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    depends_on:
+      - catalog-api
+      - orders-api
+ 
+  catalog-db:
+    image: postgres:17
+    container_name: catalog-db
+    environment:
+      POSTGRES_DB: catalogdb
+      POSTGRES_USER: cataloguser
+      #POSTGRES_USER_FILE: /run/secrets/postgres_catalog_db_username
+      POSTGRES_PASSWORD: catalogpassword
+      #POSTGRES_PASSWORD_FILE: /run/secrets/postgres_catalog_db_password
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cataloguser -d catalogdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    #secrets:
+    #  - postgres_catalog_db_username
+    #  - postgres_catalog_db_password
+  
+  orders-db:
+    image: postgres:17
+    container_name: orders-db
+    environment:
+      POSTGRES_DB: ordersdb
+      POSTGRES_USER: ordersuser
+      POSTGRES_PASSWORD: orderspassword
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ordersuser -d ordersdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      
+  catalog-migrations:
+    build:
+      context: ..
+      dockerfile: src/Catalog.Api/Dockerfile.migrations
+    container_name: catalog-migrations
+    environment:
+      Database__ConnectionString: Host=catalog-db;Port=5432;Database=catalogdb;Username=cataloguser;Password=catalogpassword
+    depends_on:
+      catalog-db:
+        condition: service_healthy
+      
+  orders-migrations:
+    build:
+      context: ..
+      dockerfile: src/Orders.Api/Dockerfile.migrations
+    container_name: orders-migrations
+    environment:
+      Database__ConnectionString: Host=orders-db;Port=5432;Database=ordersdb;Username=ordersuser;Password=orderspassword
+    depends_on:
+      orders-db:
+        condition: service_healthy
+        
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    volumes:
+      - ./observability/otel-collector/otel-collector-config.yml:/etc/otelcol-contrib/config.yml
+    ports:
+      - "8889:8889"
+      #- "4318:4318"
+      
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+      
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - otel-collector
