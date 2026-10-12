@@ -12,7 +12,7 @@
 *.env
 
 # Secrets
-secrets
+# secrets
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

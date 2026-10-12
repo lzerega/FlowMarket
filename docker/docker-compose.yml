@@ -15,7 +15,12 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      Database__ConnectionString: Host=catalog-db;Port=5432;Database=catalogdb;Username=cataloguser;Password=catalogpassword
+      #Database__ConnectionString: Host=catalog-db;Port=5432;Database=catalogdb;Username=cataloguser;Password=catalogpassword
+      #Database__UserFile: /run/secrets/postgres_catalog_db_username
+      #Database__PasswordFile: /run/secrets/postgres_catalog_db_password
+    depends_on:
+      catalog-db:
+        condition: service_healthy
 
   orders-api:
     image: orders-api
@@ -53,10 +58,15 @@ services:
     container_name: catalog-db
     environment:
       POSTGRES_DB: catalogdb
-      POSTGRES_USER: cataloguser
-      #POSTGRES_USER_FILE: /run/secrets/postgres_catalog_db_username
-      POSTGRES_PASSWORD: catalogpassword
-      #POSTGRES_PASSWORD_FILE: /run/secrets/postgres_catalog_db_password
+      #POSTGRES_USER: cataloguser
+      POSTGRES_USER_FILE: /run/secrets/postgres_user
+      #POSTGRES_PASSWORD: catalogpassword
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - source: postgres_catalog_db_username
+        target: postgres_user
+      - source: postgres_catalog_db_password
+        target: postgres_password
     ports:
       - "5433:5432"
     healthcheck:
@@ -64,9 +74,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    #secrets:
-    #  - postgres_catalog_db_username
-    #  - postgres_catalog_db_password
   
   orders-db:
     image: postgres:17
@@ -88,8 +95,15 @@ services:
       context: ..
       dockerfile: src/Catalog.Api/Dockerfile.migrations
     container_name: catalog-migrations
+    secrets:
+      - postgres_catalog_db_username
+      - postgres_catalog_db_password
     environment:
-      Database__ConnectionString: Host=catalog-db;Port=5432;Database=catalogdb;Username=cataloguser;Password=catalogpassword
+      Database__Host: catalog-db
+      Database__Port: 5432
+      Database__DatabaseName: catalogdb
+      Database__Username: "{dbUser}"
+      Database__Password: "{dbPass}"
     depends_on:
       catalog-db:
         condition: service_healthy
@@ -122,7 +136,7 @@ services:
       - "16686:16686"
       - "4317:4317"
       - "4318:4318"
-      
+ 
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -132,3 +146,22 @@ services:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     depends_on:
       - otel-collector
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+secrets:
+  postgres_catalog_db_username: 
+    file: ./secrets/postgres_catalog_db_username.txt
+  postgres_catalog_db_password: 
+    file: ./secrets/postgres_catalog_db_password.txt
+    
